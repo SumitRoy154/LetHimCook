@@ -38,7 +38,7 @@ export default function SectionFooter() {
         {/* Social Icons */}
         <div className="flex items-center justify-center gap-3">
           <a
-            href="https://github.com"
+            href="https://github.com/SumitRoy154/LetHimCook"
             target="_blank"
             rel="noopener noreferrer"
             className="w-8 h-8 rounded-full border border-white/5 flex items-center justify-center hover:border-lime-400/30 transition-colors"
@@ -46,7 +46,7 @@ export default function SectionFooter() {
             <Github className="w-3.5 h-3.5 text-gray-500 hover:text-lime-400 transition-colors" />
           </a>
           <a
-            href="https://linkedin.com"
+            href="https://www.linkedin.com/in/sumit-roy-a73098309/"
             target="_blank"
             rel="noopener noreferrer"
             className="w-8 h-8 rounded-full border border-white/5 flex items-center justify-center hover:border-lime-400/30 transition-colors"

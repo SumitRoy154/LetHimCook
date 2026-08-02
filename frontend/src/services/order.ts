@@ -35,5 +35,17 @@ export async function getOrders(): Promise<OrderRecord[]> {
 
 export async function getOrderById(orderId: string | number): Promise<OrderRecord> {
   const response = await apiClient.get(`/orders/${orderId}`);
-  return response.data as OrderRecord;
+  const item = response.data;
+  return {
+    id: item.id ?? item.order_id,
+    dishName: item.dish_name ?? item.dishName,
+    dish_name: item.dish_name ?? item.dishName,
+    status: item.status,
+    total: item.total_cost != null ? Number(item.total_cost) : item.total,
+    cost: item.total_cost != null ? Number(item.total_cost) : item.cost,
+    total_cost: item.total_cost != null ? Number(item.total_cost) : item.total_cost,
+    reward_received: item.reward_received != null ? Number(item.reward_received) : item.wallet_reward != null ? Number(item.wallet_reward) : 0,
+    wallet_reward: item.reward_received != null ? Number(item.reward_received) : item.wallet_reward != null ? Number(item.wallet_reward) : 0,
+    createdAt: item.created_at,
+  };
 }

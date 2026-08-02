@@ -118,18 +118,7 @@ export default function SectionJudgeAI({
           </div>
 
           {judgePhase !== "ready" ? (
-            /* 2-Second Tasting / Thinking / Judging Pause State */
             <div className="py-8 flex flex-col items-center justify-center gap-3">
-              <motion.div
-                animate={{ scale: [1, 1.2, 1], rotate: [0, 10, -10, 0] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-                className="text-3xl"
-              >
-                🧠
-              </motion.div>
-              <p className="text-amber-400 font-mono text-sm uppercase tracking-widest font-bold capitalize animate-pulse">
-                {judgePhase}...
-              </p>
             </div>
           ) : (
             /* Typing Animation Review Output */
@@ -148,7 +137,7 @@ export default function SectionJudgeAI({
         >
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
           <span className="text-emerald-400 text-[10px] font-mono tracking-wider uppercase font-bold">
-            {judgePhase === "ready" ? "Assessment Complete" : `${judgePhase.toUpperCase()} DISH IN PROGRESS`}
+            {judgePhase === "ready" ? "Assessment Complete" : "DISH IN PROGRESS"}
           </span>
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
         </motion.div>

@@ -208,6 +208,12 @@ def inventory_node(state: GraphState, db: Session) -> Dict[str, Any]:
         order_service.update_status(order_id, "SHOPPING")
         summary = shopping_service.purchase_missing_items(user_id, order_id, ingredients)
 
+        # Update order's total_cost in DB immediately
+        order = order_repo.get_by_id(order_id)
+        if order:
+            order.total_cost = summary["total_cost"]
+            order_repo.update(order)
+
         current_balance = wallet_service.get_balance(user_id)
         current_inv = [
             {"ingredient_name": i.ingredient_name, "quantity": str(i.quantity), "unit": i.unit}
@@ -324,7 +330,6 @@ def judge_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, 
                 "score": 9.5,
                 "review": f"Excellent {dish_name}! Great texture and balance.",
                 "suggestions": "Consider brushing crust with garlic butter before baking.",
-                "bonus_coins": 50.0,
             })
             judge_agent = JudgeAgent(provider=MockProvider(lambda p: mock_json))
         else:
@@ -336,26 +341,21 @@ def judge_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, 
             "cooking_json": cooking_session,
         })
         judge_dict = output.model_dump(mode="json")
-        score_val = float(judge_dict.get("score", 8.5))
-        bonus_val = float(judge_dict.get("bonus_coins", 0.0))
-        if bonus_val <= 0.0 and score_val >= 4.0:
-            bonus_val = 45.0
-            judge_dict["bonus_coins"] = bonus_val
+        score_val = Decimal(str(judge_dict.get("score", 8.5)))
 
         review_memory.store_review(
             order_id=order_id,
-            score=Decimal(str(judge_dict["score"])),
+            score=score_val,
             review_text=judge_dict["review"],
             suggestions=judge_dict.get("suggestions"),
-            bonus_coins=Decimal(str(bonus_val)),
+            bonus_coins=Decimal("0.00"),
         )
 
         return {
             "judge_review": judge_dict,
-            "bonus_coins": Decimal(str(bonus_val)),
             "current_status": "JUDGING_COMPLETED",
             "execution_logs": [
-                f"[{timestamp}] Judge Node: Evaluation completed | Score: {judge_dict['score']}/10 | Bonus: {bonus_val} coins."
+                f"[{timestamp}] Judge Node: Evaluation completed | Score: {score_val}/10."
             ],
         }
 
@@ -369,29 +369,78 @@ def judge_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, 
         }
 
 
-def reward_node(state: GraphState, db: Session) -> Dict[str, Any]:
-    """Reward Node (No LLM): Credits bonus coins to wallet, logs transaction, and marks order COMPLETED."""
+def reward_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, Any]:
+    """Reward Node: Invokes RewardAgent to dynamically calculate reward coins (Shopping Cost * 2), credits user wallet, logs transaction, and marks order COMPLETED."""
     logger.info("Entering reward_node for order_id=%s", state.get("order_id"))
     user_id = state["user_id"]
     order_id = state["order_id"]
-    bonus_coins = Decimal(str(state.get("bonus_coins", "0.00")))
     timestamp = datetime.now(timezone.utc).isoformat()
 
     wallet_service = WalletService(db)
     order_service = OrderService(db)
+    from app.repositories.shopping_repo import ShoppingHistoryRepository
+    shopping_repo = ShoppingHistoryRepository(db)
+    from app.agents.reward import RewardAgent
 
     try:
-        if bonus_coins > Decimal("0.00"):
-            wallet_service.credit(user_id, bonus_coins, f"Bonus reward for order #{order_id}")
+        # 1. Obtain shopping cost from state or database
+        shopping_summary = state.get("shopping_summary")
+        shopping_cost = Decimal("0.00")
+
+        if shopping_summary and "total_cost" in shopping_summary:
+            shopping_cost = Decimal(str(shopping_summary["total_cost"]))
+        else:
+            # Fallback query from shopping history database
+            history_records = shopping_repo.get_by_order_id(order_id)
+            shopping_cost = sum((r.price for r in history_records), Decimal("0.00"))
+
+        # 2. Invoke RewardAgent for dynamic calculation (Reward Coins = Shopping Cost * 2)
+        if mock:
+            reward_agent = RewardAgent(provider=MockProvider(lambda p: json.dumps({
+                "shopping_cost": float(shopping_cost),
+                "reward_multiplier": 2.0,
+                "reward_coins": float(shopping_cost * Decimal("2.00")),
+                "calculation_formula": f"Reward Coins = {shopping_cost} * 2 = {shopping_cost * Decimal('2.00')}",
+            })))
+        else:
+            reward_agent = RewardAgent()
+
+        # Calculate reward deterministically using RewardAgent method
+        reward_output = reward_agent.calculate_reward(shopping_cost)
+        reward_coins = reward_output.reward_coins
+
+        # 3. Credit wallet balance if reward > 0 and record transaction
+        if reward_coins > Decimal("0.00"):
+            wallet_service.credit(
+                user_id=user_id,
+                amount=reward_coins,
+                description=f"Reward for Order #{order_id} ({reward_output.calculation_formula})",
+            )
+
+        # 4. Update order record in DB with reward_received & mark completed
+        order = order_repo.get_by_id(order_id)
+        if order:
+            order.reward_received = reward_coins
+            order.total_cost = shopping_cost
+            order_repo.update(order)
 
         order_service.update_status(order_id, "COMPLETED")
         final_balance = wallet_service.get_balance(user_id)
 
+        logger.info(
+            "Reward Node Completed | order_id=%s, shopping_cost=%s, reward_coins=%s, final_balance=%s",
+            order_id,
+            shopping_cost,
+            reward_coins,
+            final_balance,
+        )
+
         return {
+            "bonus_coins": reward_coins,
             "wallet_balance": final_balance,
             "current_status": "COMPLETED",
             "execution_logs": [
-                f"[{timestamp}] Reward Node: Credited {bonus_coins} bonus coins. Order #{order_id} COMPLETED. Final Wallet Balance: {final_balance} coins."
+                f"[{timestamp}] Reward Node: Calculated reward coins: {reward_coins} ({reward_output.calculation_formula}). Credited to wallet. Order #{order_id} COMPLETED. Final Balance: {final_balance} coins."
             ],
         }
 

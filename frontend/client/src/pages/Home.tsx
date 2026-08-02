@@ -88,6 +88,27 @@ function asNumber(value: number | string | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function getEarnedCoins(orderData: {
+  reward_received?: number | string;
+  wallet_reward?: number | string;
+  bonus_coins?: number | string;
+  reward_coins?: number | string;
+  reward?: number | string;
+}, fallbackCost: number) {
+  const rewardValue =
+    asNumber(orderData.reward_received) ||
+    asNumber(orderData.wallet_reward) ||
+    asNumber(orderData.bonus_coins) ||
+    asNumber(orderData.reward_coins) ||
+    asNumber(orderData.reward);
+
+  if (rewardValue > 0) {
+    return rewardValue;
+  }
+
+  return fallbackCost > 0 ? fallbackCost * 2 : 0;
+}
+
 function getDishName(order: { dishName?: string; dish_name?: string } | undefined, fallback: string) {
   return order?.dishName ?? order?.dish_name ?? fallback;
 }
@@ -170,7 +191,7 @@ function buildSuggestions(orders: { dishName?: string; dish_name?: string }[], c
 export default function Home() {
   const [stage, setStage] = useState<CookingStage>("intro");
   const [currentDish, setCurrentDish] = useState("");
-  const [coinsEarned, setCoinsEarned] = useState(50);
+  const [coinsEarned, setCoinsEarned] = useState(0);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [aiErrorBanner, setAiErrorBanner] = useState<string | null>(null);
@@ -265,6 +286,52 @@ export default function Home() {
   const [walletGlow, setWalletGlow] = useState<"red" | "green" | null>(null);
   const prevWalletRef = useRef<number | null>(null);
 
+  // Queue of pending target stages to pace step-by-step
+  const targetStageQueueRef = useRef<CookingStage[]>([]);
+  const isPacingRef = useRef(false);
+
+  const processStageQueue = useCallback(async () => {
+    if (isPacingRef.current) return;
+    isPacingRef.current = true;
+
+    while (targetStageQueueRef.current.length > 0) {
+      const nextStage = targetStageQueueRef.current.shift()!;
+      setStage(nextStage);
+
+      // Wait for section animations to complete before moving to the next section
+      const stageDelays: Record<string, number> = {
+        order: 2200,      // Order card + stamp spring animation (~2.2s)
+        shopping: 2500,   // Shopping items list stagger (~2.5s)
+        inventory: 2200,  // Pantry grid appearance (~2.2s)
+        cooking: 3000,    // Multi-step cooking progression (~3.0s)
+        "judge-ai": 2500, // AI Assessment evaluation & typewriter text (~2.5s)
+        "final-dish": 2000,
+      };
+
+      const delay = stageDelays[nextStage] || 2000;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+
+    isPacingRef.current = false;
+  }, []);
+
+  const queueStageTransition = useCallback((targetStage: CookingStage) => {
+    const currentIndex = stageOrder.indexOf(stage);
+    const targetIndex = stageOrder.indexOf(targetStage);
+
+    if (targetIndex <= currentIndex) return;
+
+    // Enqueue all intermediate stages step-by-step
+    for (let i = currentIndex + 1; i <= targetIndex; i++) {
+      const stepStage = stageOrder[i];
+      if (!targetStageQueueRef.current.includes(stepStage)) {
+        targetStageQueueRef.current.push(stepStage);
+      }
+    }
+
+    processStageQueue();
+  }, [stage, processStageQueue]);
+
   // Real backend order polling with smooth paced stage pipeline
   useEffect(() => {
     if (!activeOrderId || !accessToken) return;
@@ -275,16 +342,38 @@ export default function Home() {
         const st = (orderData?.status || "").toUpperCase();
 
         if (st === "PENDING" || st === "INITIALIZATION") {
-          setStage("order");
+          queueStageTransition("order");
         } else if (st === "SHOPPING") {
-          setStage("shopping");
+          queueStageTransition("shopping");
         } else if (st === "COOKING") {
-          setStage("cooking");
+          queueStageTransition("cooking");
         } else if (st === "JUDGING" || st === "REVIEW") {
-          setStage("judge-ai");
+          queueStageTransition("judge-ai");
         } else if (st === "COMPLETED") {
-          setStage("final-dish");
-          if (orderData.reward_received) setCoinsEarned(Number(orderData.reward_received));
+          queueStageTransition("final-dish");
+          const cost = Number(orderData.total_cost || orderData.total || orderData.cost || 0);
+          const earned = getEarnedCoins(orderData, cost);
+          setCoinsEarned(earned);
+
+          const cachedWallet = queryClient.getQueryData<{ balance?: number; currency?: string; transactions?: any[] }>(["wallet"]);
+          const currentBalance = cachedWallet?.balance ?? walletStoreBalance ?? 0;
+          const creditedBalance = currentBalance + earned;
+
+          setWallet({
+            balance: creditedBalance,
+            currency: cachedWallet?.currency ?? "INR",
+            transactions: cachedWallet?.transactions ?? [],
+          });
+
+          queryClient.setQueryData(["wallet"], (previous: any) => ({
+            ...(previous ?? {}),
+            balance: creditedBalance,
+            currency: cachedWallet?.currency ?? previous?.currency ?? "INR",
+            transactions: cachedWallet?.transactions ?? previous?.transactions ?? [],
+          }));
+
+          queryClient.invalidateQueries({ queryKey: ["wallet"] });
+          queryClient.invalidateQueries({ queryKey: ["orders"] });
           clearInterval(interval);
           setActiveOrderId(null);
         } else if (st === "FAILED") {
@@ -298,7 +387,7 @@ export default function Home() {
     }, 1500);
 
     return () => clearInterval(interval);
-  }, [activeOrderId, accessToken]);
+  }, [activeOrderId, accessToken, queueStageTransition]);
 
   const scrollToSection = useCallback((name: CookingStage) => {
     const element = sectionRefs.current.get(name);
@@ -354,7 +443,6 @@ export default function Home() {
   useEffect(() => {
     if (reviewQuery.data) {
       setReview(reviewQuery.data);
-      if (typeof reviewQuery.data.reward === "number") setCoinsEarned(reviewQuery.data.reward);
     }
     setReviewLoading(reviewQuery.isFetching);
   }, [reviewQuery.data, reviewQuery.isFetching, setReview, setReviewLoading]);

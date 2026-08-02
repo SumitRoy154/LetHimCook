@@ -37,7 +37,7 @@ def main():
     print(f"Order #{order.id} Created | Initial Status: {order.status}")
 
     # 3. Build & Run LangGraph Cooking Orchestrator
-    graph = build_cooking_graph(db=db, mock=False)
+    graph = build_cooking_graph(db=db, mock=True)
     initial_state = {"user_id": user.id, "order_id": order.id}
 
     print("\n=== EXECUTING LANGGRAPH WORKFLOW ENGINE ===")

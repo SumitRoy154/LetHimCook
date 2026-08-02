@@ -35,4 +35,4 @@ class JudgeOutput(BaseModel):
     score: Decimal = Field(..., description="Dish score out of 10.00")
     review: str = Field(..., description="Detailed review and feedback")
     suggestions: Optional[str] = Field(None, description="Suggestions for future cooking runs")
-    bonus_coins: Decimal = Field(Decimal("0.00"), description="Recommended bonus coin reward")
+    bonus_coins: Optional[Decimal] = Field(Decimal("0.00"), description="Legacy field for bonus coins")

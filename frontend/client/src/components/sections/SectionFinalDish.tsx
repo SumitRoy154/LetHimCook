@@ -140,7 +140,7 @@ export default function SectionFinalDish({
           >
             <div className="glass-strong px-8 py-4 rounded-full border border-lime-400/30 shadow-[0_0_20px_rgba(163,230,53,0.3)]">
               <p className="text-[10px] text-gray-400 uppercase tracking-widest mb-0.5 font-body">Reward Credited</p>
-              <p className="text-lime-400 font-bold text-2xl font-mono tabular-nums">+{coinsEarned > 0 ? coinsEarned : 45} Coins Earned</p>
+              <p className="text-lime-400 font-bold text-2xl font-mono tabular-nums">+{coinsEarned} Coins Earned</p>
             </div>
           </motion.div>
         )}

@@ -40,7 +40,7 @@ def build_cooking_graph(db: Session, mock: bool = False) -> Any:
     bound_inventory = partial(inventory_node, db=db)
     bound_cook = partial(cook_node, db=db, mock=mock)
     bound_judge = partial(judge_node, db=db, mock=mock)
-    bound_reward = partial(reward_node, db=db)
+    bound_reward = partial(reward_node, db=db, mock=mock)
     bound_persistence = partial(persistence_node, db=db)
     bound_fail = partial(fail_order_node, db=db)
 
