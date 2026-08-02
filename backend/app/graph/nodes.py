@@ -1,0 +1,511 @@
+import json
+import logging
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any, Dict
+
+from sqlalchemy.orm import Session
+
+from app.agents import CookAgent, JudgeAgent, PlannerAgent
+from app.agents.providers.mock_provider import MockProvider
+from app.graph.state import GraphState
+from app.repositories import OrderRepository, UserRepository
+from app.services import (
+    InventoryService,
+    OrderService,
+    PersistenceService,
+    RecipeService,
+    ReviewMemoryService,
+    ShoppingService,
+    TransactionService,
+    WalletService,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def initialization_node(state: GraphState, db: Session) -> Dict[str, Any]:
+    """Initialization Node (No LLM): Prepares workflow, validates user/order/wallet/inventory, and sets PENDING state."""
+    logger.info("Entering initialization_node for user_id=%s, order_id=%s", state.get("user_id"), state.get("order_id"))
+    user_id = state.get("user_id")
+    order_id = state.get("order_id")
+    start_dt = datetime.now(timezone.utc)
+    timestamp = start_dt.isoformat()
+
+    user_repo = UserRepository(db)
+    order_repo = OrderRepository(db)
+    wallet_service = WalletService(db)
+    inventory_service = InventoryService(db)
+
+    try:
+        # 1. Validate User exists
+        user = user_repo.get_by_id(user_id)
+        if not user:
+            raise ValueError(f"User #{user_id} not found in database.")
+
+        # 2. Validate Order exists
+        order = order_repo.get_by_id(order_id)
+        if not order:
+            raise ValueError(f"Order #{order_id} not found in database.")
+
+        # 3. Load Wallet Balance
+        balance = wallet_service.get_balance(user_id)
+
+        # 4. Load User Inventory
+        inv_items = [
+            {"ingredient_name": i.ingredient_name, "quantity": str(i.quantity), "unit": i.unit}
+            for i in inventory_service.get_inventory(user_id)
+        ]
+
+        logger.info("Initialization completed successfully for order #%s", order_id)
+        return {
+            "dish_name": order.dish_name,
+            "wallet_balance": balance,
+            "inventory": inv_items,
+            "recipe": None,
+            "shopping_summary": None,
+            "cooking_session": None,
+            "judge_review": None,
+            "bonus_coins": Decimal("0.00"),
+            "planner_retry_count": 0,
+            "cook_retry_count": 0,
+            "judge_retry_count": 0,
+            "current_status": "PENDING",
+            "workflow_start_time": timestamp,
+            "execution_logs": [
+                f"[{timestamp}] Initialization Started.",
+                f"[{timestamp}] Initialization Completed. User #{user_id} & Order #{order_id} validated. Balance: {balance} coins.",
+            ],
+        }
+
+    except Exception as exc:
+        db.rollback()
+        logger.error("Initialization node failure: %s", exc)
+        return {
+            "current_status": "FAILED",
+            "errors": [f"Initialization failed: {exc}"],
+            "execution_logs": [
+                f"[{timestamp}] Initialization Started.",
+                f"[{timestamp}] Initialization Failure: {exc}",
+            ],
+        }
+
+
+def planner_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, Any]:
+    """Planner Node: Queries RecipeService cache or invokes PlannerAgent to generate recipe."""
+    logger.info("Entering planner_node for order_id=%s, dish='%s'", state.get("order_id"), state.get("dish_name"))
+    dish_name = state["dish_name"]
+    retry_count = state.get("planner_retry_count", 0)
+
+    recipe_service = RecipeService(db)
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    try:
+        # 1. Search Recipe Cache first
+        cached_recipe = recipe_service.search_recipe(dish_name)
+        if cached_recipe:
+            recipe_dict = {
+                "dish_name": cached_recipe.dish_name,
+                "ingredients": cached_recipe.ingredients_json.get("items", []),
+                "recipe_steps": cached_recipe.recipe_json.get("steps", []),
+                "estimated_cooking_time": cached_recipe.estimated_cooking_time,
+            }
+            logger.info("Using cached recipe for '%s'", dish_name)
+            return {
+                "recipe": recipe_dict,
+                "current_status": "RECIPE_READY",
+                "execution_logs": [f"[{timestamp}] Planner Node: Using cached recipe for '{dish_name}'."],
+            }
+
+        # 2. Cache miss -> Invoke PlannerAgent
+        if mock:
+            dish_lower = dish_name.lower()
+            if "egg" in dish_lower or "roll" in dish_lower:
+                mock_ingredients = [
+                    {"name": "egg", "quantity": 2.0, "unit": "pieces", "price": 10.0},
+                    {"name": "roti wrapper", "quantity": 1.0, "unit": "piece", "price": 15.0},
+                    {"name": "onion & veggies", "quantity": 1.0, "unit": "cup", "price": 10.0},
+                ]
+                mock_steps = [
+                    "Whisk eggs with salt and pepper, then fry on pan.",
+                    "Warm roti wrapper and place cooked egg on top.",
+                    "Add chopped onions, green chilies, and roll tightly.",
+                ]
+            elif "tea" in dish_lower or "chai" in dish_lower:
+                mock_ingredients = [
+                    {"name": "tea leaves", "quantity": 1.0, "unit": "tbsp", "price": 5.0},
+                    {"name": "milk", "quantity": 1.0, "unit": "cup", "price": 15.0},
+                    {"name": "sugar", "quantity": 1.0, "unit": "tsp", "price": 5.0},
+                ]
+                mock_steps = [
+                    "Boil water with crushed cardamom and tea leaves.",
+                    "Add milk and sugar; bring to a rolling boil.",
+                    "Strain into cup and serve hot.",
+                ]
+            else:
+                mock_ingredients = [
+                    {"name": f"{dish_name} base ingredient", "quantity": 1.0, "unit": "portion", "price": 25.0},
+                    {"name": "chef spices", "quantity": 1.0, "unit": "pinch", "price": 10.0},
+                ]
+                mock_steps = [
+                    f"Prepare fresh ingredients for {dish_name}.",
+                    f"Sauté and cook over medium flame.",
+                    f"Plate and serve {dish_name} hot.",
+                ]
+
+            mock_json = json.dumps({
+                "dish_name": dish_name,
+                "ingredients": mock_ingredients,
+                "recipe_steps": mock_steps,
+                "estimated_cooking_time": 15,
+            })
+            planner_agent = PlannerAgent(provider=MockProvider(lambda p: mock_json))
+        else:
+            planner_agent = PlannerAgent()
+
+        output = planner_agent.run({"dish_name": dish_name})
+        recipe_dict = output.model_dump(mode="json")
+
+        # Cache generated recipe
+        recipe_service.create_recipe(
+            dish_name=dish_name,
+            recipe_json={"steps": recipe_dict["recipe_steps"]},
+            ingredients_json={"items": recipe_dict["ingredients"]},
+            estimated_cooking_time=recipe_dict["estimated_cooking_time"],
+        )
+
+        return {
+            "recipe": recipe_dict,
+            "current_status": "RECIPE_READY",
+            "execution_logs": [f"[{timestamp}] Planner Node: Generated & cached recipe for '{dish_name}'."],
+        }
+
+    except Exception as exc:
+        db.rollback()
+        logger.error("Planner node failure: %s", exc)
+        return {
+            "planner_retry_count": retry_count + 1,
+            "errors": [f"Planner node error: {exc}"],
+            "execution_logs": [f"[{timestamp}] Planner Node Failure: {exc}"],
+        }
+
+
+def inventory_node(state: GraphState, db: Session) -> Dict[str, Any]:
+    """Inventory Node (No LLM): Purchases missing items, debits wallet, updates inventory & order status."""
+    logger.info("Entering inventory_node for order_id=%s", state.get("order_id"))
+    user_id = state["user_id"]
+    order_id = state["order_id"]
+    recipe = state.get("recipe", {})
+    ingredients = recipe.get("ingredients", [])
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    order_service = OrderService(db)
+    shopping_service = ShoppingService(db)
+    wallet_service = WalletService(db)
+    inventory_service = InventoryService(db)
+
+    try:
+        order_service.update_status(order_id, "SHOPPING")
+        summary = shopping_service.purchase_missing_items(user_id, order_id, ingredients)
+
+        current_balance = wallet_service.get_balance(user_id)
+        current_inv = [
+            {"ingredient_name": i.ingredient_name, "quantity": str(i.quantity), "unit": i.unit}
+            for i in inventory_service.get_inventory(user_id)
+        ]
+
+        return {
+            "shopping_summary": summary,
+            "inventory": current_inv,
+            "wallet_balance": current_balance,
+            "current_status": "SHOPPING_COMPLETED",
+            "execution_logs": [
+                f"[{timestamp}] Inventory Node: Shopping completed. Spent: {summary['total_cost']} coins. Balance: {current_balance} coins."
+            ],
+        }
+
+    except Exception as exc:
+        db.rollback()
+        logger.error("Inventory node failure: %s", exc)
+        return {
+            "current_status": "FAILED",
+            "errors": [f"Inventory node error: {exc}"],
+            "execution_logs": [f"[{timestamp}] Inventory Node Failure: {exc}"],
+        }
+
+
+def cook_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, Any]:
+    """Cook Node: Retrieves previous review suggestions, invokes CookAgent, and consumes recipe ingredients."""
+    logger.info("Entering cook_node for order_id=%s", state.get("order_id"))
+    user_id = state["user_id"]
+    order_id = state["order_id"]
+    dish_name = state["dish_name"]
+    recipe = state.get("recipe", {})
+    recipe_steps = recipe.get("recipe_steps", [])
+    ingredients = recipe.get("ingredients", [])
+    retry_count = state.get("cook_retry_count", 0)
+
+    order_service = OrderService(db)
+    review_memory = ReviewMemoryService(db)
+    inventory_service = InventoryService(db)
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    try:
+        order_service.update_status(order_id, "COOKING")
+        prev_suggestions = review_memory.get_previous_suggestions(dish_name)
+
+        current_inv = [
+            {"ingredient_name": i.ingredient_name, "quantity": str(i.quantity), "unit": i.unit}
+            for i in inventory_service.get_inventory(user_id)
+        ]
+
+        if mock:
+            mock_json = json.dumps({
+                "cooking_steps": [
+                    {"step_number": 1, "action": "Prepared dough base", "status": "COMPLETED", "duration_seconds": 120},
+                    {"step_number": 2, "action": "Spread sauce and cheese", "status": "COMPLETED", "duration_seconds": 180},
+                    {"step_number": 3, "action": "Baked until golden brown", "status": "COMPLETED", "duration_seconds": 900},
+                ],
+                "step_telemetry": [
+                    {"timestamp": timestamp, "log": f"Cooking {dish_name} incorporating {len(prev_suggestions)} past suggestions."}
+                ],
+                "status": "COMPLETED",
+            })
+            cook_agent = CookAgent(provider=MockProvider(lambda p: mock_json))
+        else:
+            cook_agent = CookAgent()
+
+        output = cook_agent.run({
+            "dish_name": dish_name,
+            "recipe_steps": recipe_steps,
+            "available_inventory": current_inv,
+            "previous_suggestions": prev_suggestions,
+        })
+        cook_dict = output.model_dump(mode="json")
+
+        inventory_service.consume(user_id, ingredients)
+
+        return {
+            "cooking_session": cook_dict,
+            "current_status": "COOKING_COMPLETED",
+            "execution_logs": [
+                f"[{timestamp}] Cook Node: Cooking completed ({len(cook_dict['cooking_steps'])} steps). Ingredients consumed."
+            ],
+        }
+
+    except Exception as exc:
+        db.rollback()
+        logger.error("Cook node failure: %s", exc)
+        return {
+            "cook_retry_count": retry_count + 1,
+            "errors": [f"Cook node error: {exc}"],
+            "execution_logs": [f"[{timestamp}] Cook Node Failure: {exc}"],
+        }
+
+
+def judge_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, Any]:
+    """Judge Node: Invokes JudgeAgent, evaluates dish telemetry, and persists feedback to ReviewMemoryService."""
+    logger.info("Entering judge_node for order_id=%s", state.get("order_id"))
+    order_id = state["order_id"]
+    dish_name = state["dish_name"]
+    recipe = state.get("recipe", {})
+    cooking_session = state.get("cooking_session", {})
+    retry_count = state.get("judge_retry_count", 0)
+
+    order_service = OrderService(db)
+    review_memory = ReviewMemoryService(db)
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    try:
+        order_service.update_status(order_id, "JUDGING")
+
+        if mock:
+            mock_json = json.dumps({
+                "score": 9.5,
+                "review": f"Excellent {dish_name}! Great texture and balance.",
+                "suggestions": "Consider brushing crust with garlic butter before baking.",
+                "bonus_coins": 50.0,
+            })
+            judge_agent = JudgeAgent(provider=MockProvider(lambda p: mock_json))
+        else:
+            judge_agent = JudgeAgent()
+
+        output = judge_agent.run({
+            "dish_name": dish_name,
+            "recipe_json": recipe,
+            "cooking_json": cooking_session,
+        })
+        judge_dict = output.model_dump(mode="json")
+        score_val = float(judge_dict.get("score", 8.5))
+        bonus_val = float(judge_dict.get("bonus_coins", 0.0))
+        if bonus_val <= 0.0 and score_val >= 4.0:
+            bonus_val = 45.0
+            judge_dict["bonus_coins"] = bonus_val
+
+        review_memory.store_review(
+            order_id=order_id,
+            score=Decimal(str(judge_dict["score"])),
+            review_text=judge_dict["review"],
+            suggestions=judge_dict.get("suggestions"),
+            bonus_coins=Decimal(str(bonus_val)),
+        )
+
+        return {
+            "judge_review": judge_dict,
+            "bonus_coins": Decimal(str(bonus_val)),
+            "current_status": "JUDGING_COMPLETED",
+            "execution_logs": [
+                f"[{timestamp}] Judge Node: Evaluation completed | Score: {judge_dict['score']}/10 | Bonus: {bonus_val} coins."
+            ],
+        }
+
+    except Exception as exc:
+        db.rollback()
+        logger.error("Judge node failure: %s", exc)
+        return {
+            "judge_retry_count": retry_count + 1,
+            "errors": [f"Judge node error: {exc}"],
+            "execution_logs": [f"[{timestamp}] Judge Node Failure: {exc}"],
+        }
+
+
+def reward_node(state: GraphState, db: Session) -> Dict[str, Any]:
+    """Reward Node (No LLM): Credits bonus coins to wallet, logs transaction, and marks order COMPLETED."""
+    logger.info("Entering reward_node for order_id=%s", state.get("order_id"))
+    user_id = state["user_id"]
+    order_id = state["order_id"]
+    bonus_coins = Decimal(str(state.get("bonus_coins", "0.00")))
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    wallet_service = WalletService(db)
+    order_service = OrderService(db)
+
+    try:
+        if bonus_coins > Decimal("0.00"):
+            wallet_service.credit(user_id, bonus_coins, f"Bonus reward for order #{order_id}")
+
+        order_service.update_status(order_id, "COMPLETED")
+        final_balance = wallet_service.get_balance(user_id)
+
+        return {
+            "wallet_balance": final_balance,
+            "current_status": "COMPLETED",
+            "execution_logs": [
+                f"[{timestamp}] Reward Node: Credited {bonus_coins} bonus coins. Order #{order_id} COMPLETED. Final Wallet Balance: {final_balance} coins."
+            ],
+        }
+
+    except Exception as exc:
+        db.rollback()
+        logger.error("Reward node failure: %s", exc)
+        return {
+            "current_status": "FAILED",
+            "errors": [f"Reward node error: {exc}"],
+            "execution_logs": [f"[{timestamp}] Reward Node Failure: {exc}"],
+        }
+
+
+def persistence_node(state: GraphState, db: Session) -> Dict[str, Any]:
+    """Persistence Node (No LLM): Persists full workflow execution snapshot safely to database."""
+    logger.info("Entering persistence_node for order_id=%s", state.get("order_id"))
+    user_id = state.get("user_id")
+    order_id = state.get("order_id")
+    end_dt = datetime.now(timezone.utc)
+    end_timestamp = end_dt.isoformat()
+
+    persistence_service = PersistenceService(db)
+
+    # Calculate execution duration
+    duration_ms = None
+    started_at_dt = None
+    start_str = state.get("workflow_start_time")
+
+    if start_str:
+        try:
+            started_at_dt = datetime.fromisoformat(start_str)
+            duration_ms = int((end_dt - started_at_dt).total_seconds() * 1000)
+        except Exception:
+            pass
+
+    # Build state snapshot
+    snapshot = {
+        "user_id": user_id,
+        "order_id": order_id,
+        "dish_name": state.get("dish_name"),
+        "wallet_balance": str(state.get("wallet_balance", "0.00")),
+        "bonus_coins": str(state.get("bonus_coins", "0.00")),
+        "recipe": state.get("recipe"),
+        "shopping_summary": state.get("shopping_summary"),
+        "cooking_session": state.get("cooking_session"),
+        "judge_review": state.get("judge_review"),
+        "current_status": state.get("current_status"),
+    }
+    # Ensure nested Decimal objects in recipe/shopping_summary are converted to float/str
+    snapshot_json_clean = json.loads(json.dumps(snapshot, default=str))
+
+    record = persistence_service.save_execution(
+        order_id=order_id,
+        user_id=user_id,
+        workflow_status=state.get("current_status", "COMPLETED"),
+        started_at=started_at_dt,
+        completed_at=end_dt,
+        execution_time_ms=duration_ms,
+        execution_logs=state.get("execution_logs", []),
+        error_logs=state.get("errors", []),
+        graph_state_snapshot=snapshot_json_clean,
+        final_wallet_balance=state.get("wallet_balance"),
+        bonus_coins=state.get("bonus_coins"),
+    )
+
+    exec_id = record.id if record else None
+
+    return {
+        "workflow_end_time": end_timestamp,
+        "execution_duration_ms": duration_ms,
+        "workflow_execution_id": exec_id,
+        "graph_state_snapshot": snapshot,
+        "execution_logs": [
+            f"[{end_timestamp}] Persistence Started.",
+            f"[{end_timestamp}] Persistence Completed. Audit record #{exec_id} saved (duration: {duration_ms}ms).",
+        ],
+    }
+
+
+def fail_order_node(state: GraphState, db: Session) -> Dict[str, Any]:
+    """Fail Order Node: Marks order as FAILED in database and halts workflow safely."""
+    logger.warning("Entering fail_order_node for order_id=%s", state.get("order_id"))
+    order_id = state.get("order_id")
+    user_id = state.get("user_id")
+    errors = state.get("errors", [])
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    if order_id:
+        try:
+            db.rollback()
+            order_service = OrderService(db)
+            order_service.update_status(order_id, "FAILED")
+        except Exception as exc:
+            logger.error("Error updating order to FAILED: %s", exc)
+
+    # Optionally persist audit record for failure
+    if user_id and order_id:
+        try:
+            persistence_service = PersistenceService(db)
+            persistence_service.save_execution(
+                order_id=order_id,
+                user_id=user_id,
+                workflow_status="FAILED",
+                completed_at=datetime.now(timezone.utc),
+                execution_logs=state.get("execution_logs", []),
+                error_logs=errors,
+                graph_state_snapshot={"errors": errors, "status": "FAILED"},
+            )
+        except Exception:
+            pass
+
+    return {
+        "current_status": "FAILED",
+        "execution_logs": [
+            f"[{timestamp}] Workflow Aborted / Order #{order_id} FAILED | Reason: {'; '.join(errors)}"
+        ],
+    }
