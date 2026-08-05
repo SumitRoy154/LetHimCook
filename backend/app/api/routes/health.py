@@ -11,6 +11,10 @@ settings = get_settings()
 def health_check() -> dict:
     db_connected = check_database_connection()
 
+    groq_key_set = bool(settings.groq_api_key)
+    anthropic_key_set = bool(settings.anthropic_api_key)
+    google_key_set = bool(settings.google_api_key)
+
     return {
         "status": "healthy" if db_connected else "degraded",
         "app": settings.app_name,
@@ -18,5 +22,10 @@ def health_check() -> dict:
         "database": {
             "engine": "mysql",
             "connected": db_connected,
+        },
+        "llm_providers": {
+            "groq_planner": {"configured": groq_key_set, "provider": settings.planner_provider},
+            "claude_cook": {"configured": anthropic_key_set, "provider": settings.cook_provider},
+            "gemini_judge": {"configured": google_key_set, "provider": settings.judge_provider},
         },
     }
