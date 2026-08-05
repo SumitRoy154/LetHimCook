@@ -5,12 +5,10 @@ import type { AuthSession, ApiErrorPayload } from "@/types/api";
 
 const refreshClient = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: true,
 });
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: true,
   headers: {
     "Content-Type": "application/json",
   },
