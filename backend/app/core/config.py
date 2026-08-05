@@ -108,6 +108,9 @@ class Settings(BaseSettings):
         import os
         env_url = os.getenv("DATABASE_URL") or os.getenv("DATABASE_URL_ENV") or self.database_url_env
         if env_url:
+            # PyMySQL expects ssl_mode or ssl, replace ssl-mode with ssl_mode if present
+            if "ssl-mode=" in env_url:
+                env_url = env_url.replace("ssl-mode=", "ssl_mode=")
             return env_url
         return (
             f"mysql+pymysql://{self.effective_db_user}:{self.effective_db_password}"
