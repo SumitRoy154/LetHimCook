@@ -43,27 +43,14 @@ def create_order(
         order = order_service.create_order(user_id=current_user.id, dish_name=payload.dish_name)
 
         # Build and invoke LangGraph graph
-        graph = build_cooking_graph(db=db, mock=payload.mock)
+        graph = build_cooking_graph(db=db)
         initial_state = {
             "order_id": order.id,
             "user_id": current_user.id,
             "dish_name": order.dish_name,
-            "mock": payload.mock,
         }
 
         final_state = graph.invoke(initial_state)
-
-        # Fallback to mock execution if real API quota fails
-        if final_state.get("current_status") == "FAILED" and not payload.mock:
-            logger.warning("Order #%s failed with real LLM provider, falling back to mock mode", order.id)
-            mock_graph = build_cooking_graph(db=db, mock=True)
-            retry_state = {
-                "order_id": order.id,
-                "user_id": current_user.id,
-                "dish_name": order.dish_name,
-                "mock": True,
-            }
-            final_state = mock_graph.invoke(retry_state)
 
         # Retrieve resulting workflow execution ID if saved
         workflow_repo = WorkflowExecutionRepository(db)

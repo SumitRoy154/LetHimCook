@@ -378,8 +378,6 @@ export default function Home() {
           setActiveOrderId(null);
         } else if (st === "FAILED") {
           setAiErrorBanner("AI services are currently unavailable. We are out of AI tokens. Please try again later.");
-          clearInterval(interval);
-          setActiveOrderId(null);
         }
       } catch {
         // Polling error fallback
@@ -389,21 +387,46 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [activeOrderId, accessToken, queueStageTransition]);
 
+  const isManualScrollingRef = useRef(false);
+
   const scrollToSection = useCallback((name: CookingStage) => {
     const element = sectionRefs.current.get(name);
     if (element) {
+      isManualScrollingRef.current = true;
       element.scrollIntoView({ behavior: "smooth", block: "start" });
+      setTimeout(() => {
+        isManualScrollingRef.current = false;
+      }, 800);
     }
   }, []);
 
+  const handleSelectStage = useCallback((selectedStage: CookingStage) => {
+    setStage(selectedStage);
+    scrollToSection(selectedStage);
+  }, [scrollToSection]);
+
+  // ScrollSpy: Update active stage dynamically based on scroll position
   useEffect(() => {
-    if (stage !== "intro") {
-      const timer = setTimeout(() => {
-        scrollToSection(stage);
-      }, 120);
-      return () => clearTimeout(timer);
-    }
-  }, [stage, scrollToSection]);
+    const handleScroll = () => {
+      if (isManualScrollingRef.current) return;
+      const scrollPosition = window.scrollY + window.innerHeight / 3;
+
+      for (let i = stageOrder.length - 1; i >= 0; i--) {
+        const stageName = stageOrder[i];
+        const element = sectionRefs.current.get(stageName);
+        if (element) {
+          const top = element.offsetTop;
+          if (scrollPosition >= top) {
+            setStage((prev) => (prev !== stageName ? stageName : prev));
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   useEffect(() => {
     if (walletQuery.data) setWallet(walletQuery.data);
@@ -612,7 +635,7 @@ export default function Home() {
       <AuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} />
       <OrderHistoryModal open={historyModalOpen} onOpenChange={setHistoryModalOpen} />
 
-      <ProgressIndicator currentStage={stage} stages={stageOrder} />
+      <ProgressIndicator currentStage={stage} stages={stageOrder} onSelectStage={(s) => handleSelectStage(s as CookingStage)} />
 
       <div className="w-full">
         {/* Section 1: Intro & Order Input */}

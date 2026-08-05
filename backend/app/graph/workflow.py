@@ -30,17 +30,17 @@ from app.graph.state import GraphState
 logger = logging.getLogger(__name__)
 
 
-def build_cooking_graph(db: Session, mock: bool = False) -> Any:
-    """Build and compile the extended LangGraph StateGraph connecting real AI providers or Mock fallbacks."""
+def build_cooking_graph(db: Session) -> Any:
+    """Build and compile the extended LangGraph StateGraph connecting real AI providers."""
     workflow = StateGraph(GraphState)
 
-    # Bind db session and mock flag to node functions
+    # Bind db session to node functions
     bound_init = partial(initialization_node, db=db)
-    bound_planner = partial(planner_node, db=db, mock=mock)
+    bound_planner = partial(planner_node, db=db)
     bound_inventory = partial(inventory_node, db=db)
-    bound_cook = partial(cook_node, db=db, mock=mock)
-    bound_judge = partial(judge_node, db=db, mock=mock)
-    bound_reward = partial(reward_node, db=db, mock=mock)
+    bound_cook = partial(cook_node, db=db)
+    bound_judge = partial(judge_node, db=db)
+    bound_reward = partial(reward_node, db=db)
     bound_persistence = partial(persistence_node, db=db)
     bound_fail = partial(fail_order_node, db=db)
 
@@ -120,7 +120,7 @@ def build_cooking_graph(db: Session, mock: bool = False) -> Any:
 
     # Compile graph
     compiled_graph = workflow.compile()
-    logger.info("Extended LangGraph orchestrator graph compiled successfully (mock=%s).", mock)
+    logger.info("Extended LangGraph orchestrator graph compiled successfully.")
     return compiled_graph
 
 

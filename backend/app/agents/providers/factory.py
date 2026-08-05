@@ -4,8 +4,6 @@ from app.agents.providers.anthropic_provider import AnthropicProvider
 from app.agents.providers.base_provider import LLMProvider
 from app.agents.providers.google_provider import GoogleProvider
 from app.agents.providers.groq_provider import GroqProvider
-from app.agents.providers.mock_provider import MockProvider
-from app.agents.providers.openai_provider import OpenAIProvider
 from app.core.config import get_settings
 from app.exceptions.agent import ProviderException
 
@@ -16,11 +14,7 @@ class ProviderFactory:
     """Factory Pattern resolving real LLMProvider strategy instances for AI roles."""
 
     @staticmethod
-    def get_provider_for_role(role_name: str, mock: bool = False) -> LLMProvider:
-        if mock:
-            logger.info("ProviderFactory resolving MockProvider for role '%s'", role_name)
-            return MockProvider()
-
+    def get_provider_for_role(role_name: str) -> LLMProvider:
         settings = get_settings()
         role = role_name.lower().strip()
 
@@ -28,21 +22,9 @@ class ProviderFactory:
             provider_name = settings.planner_provider.lower().strip()
             if provider_name == "groq":
                 if not settings.groq_api_key:
-                    logger.warning("GROQ_API_KEY is empty. Falling back to MockProvider for Planner role.")
-                    return MockProvider()
+                    raise ProviderException("GROQ_API_KEY is missing for Planner role.")
                 return GroqProvider(
                     api_key=settings.groq_api_key,
-                    model=settings.planner_model,
-                    temperature=settings.planner_temperature,
-                    max_tokens=settings.planner_max_tokens,
-                    timeout=settings.planner_timeout,
-                )
-            elif provider_name == "openai":
-                if not settings.openai_api_key:
-                    logger.warning("OPENAI_API_KEY is empty. Falling back to MockProvider for Planner role.")
-                    return MockProvider()
-                return OpenAIProvider(
-                    api_key=settings.openai_api_key,
                     model=settings.planner_model,
                     temperature=settings.planner_temperature,
                     max_tokens=settings.planner_max_tokens,
@@ -53,8 +35,7 @@ class ProviderFactory:
             provider_name = settings.cook_provider.lower().strip()
             if provider_name == "groq":
                 if not settings.groq_api_key:
-                    logger.warning("GROQ_API_KEY is empty. Falling back to MockProvider for Cook role.")
-                    return MockProvider()
+                    raise ProviderException("GROQ_API_KEY is missing for Cook role.")
                 cook_model = settings.cook_model if "llama" in settings.cook_model.lower() or "mixtral" in settings.cook_model.lower() else "llama-3.3-70b-versatile"
                 return GroqProvider(
                     api_key=settings.groq_api_key,
@@ -65,19 +46,17 @@ class ProviderFactory:
                 )
             elif provider_name == "google":
                 if not settings.google_api_key:
-                    logger.warning("GOOGLE_API_KEY is empty. Falling back to MockProvider for Cook role.")
-                    return MockProvider()
+                    raise ProviderException("GOOGLE_API_KEY is missing for Cook role.")
                 return GoogleProvider(
                     api_key=settings.google_api_key,
-                    model=settings.cook_model if "gemini" in settings.cook_model.lower() else "gemini-1.5-pro",
+                    model=settings.cook_model if "gemini" in settings.cook_model.lower() else "gemini-2.5-flash",
                     temperature=settings.cook_temperature,
                     max_tokens=settings.cook_max_tokens,
                     timeout=settings.cook_timeout,
                 )
-            elif provider_name == "anthropic":
+            elif provider_name in ["anthropic", "claude"]:
                 if not settings.anthropic_api_key:
-                    logger.warning("ANTHROPIC_API_KEY is empty. Falling back to MockProvider for Cook role.")
-                    return MockProvider()
+                    raise ProviderException("ANTHROPIC_API_KEY is missing for Cook role.")
                 return AnthropicProvider(
                     api_key=settings.anthropic_api_key,
                     model=settings.cook_model,
@@ -90,8 +69,7 @@ class ProviderFactory:
             provider_name = settings.judge_provider.lower().strip()
             if provider_name == "groq":
                 if not settings.groq_api_key:
-                    logger.warning("GROQ_API_KEY is empty. Falling back to MockProvider for Judge role.")
-                    return MockProvider()
+                    raise ProviderException("GROQ_API_KEY is missing for Judge role.")
                 judge_model = settings.judge_model if "llama" in settings.judge_model.lower() or "mixtral" in settings.judge_model.lower() else "llama-3.3-70b-versatile"
                 return GroqProvider(
                     api_key=settings.groq_api_key,
@@ -100,10 +78,9 @@ class ProviderFactory:
                     max_tokens=settings.judge_max_tokens,
                     timeout=settings.judge_timeout,
                 )
-            elif provider_name == "google":
+            elif provider_name in ["google", "gemini"]:
                 if not settings.google_api_key:
-                    logger.warning("GOOGLE_API_KEY is empty. Falling back to MockProvider for Judge role.")
-                    return MockProvider()
+                    raise ProviderException("GOOGLE_API_KEY is missing for Judge role.")
                 return GoogleProvider(
                     api_key=settings.google_api_key,
                     model=settings.judge_model,
@@ -111,8 +88,5 @@ class ProviderFactory:
                     max_tokens=settings.judge_max_tokens,
                     timeout=settings.judge_timeout,
                 )
-
-        if provider_name == "mock":
-            return MockProvider()
 
         raise ProviderException(f"Unsupported or unconfigured provider '{provider_name}' for role '{role_name}'")

@@ -91,7 +91,7 @@ def initialization_node(state: GraphState, db: Session) -> Dict[str, Any]:
         }
 
 
-def planner_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, Any]:
+def planner_node(state: GraphState, db: Session) -> Dict[str, Any]:
     """Planner Node: Queries RecipeService cache or invokes PlannerAgent to generate recipe."""
     logger.info("Entering planner_node for order_id=%s, dish='%s'", state.get("order_id"), state.get("dish_name"))
     dish_name = state["dish_name"]
@@ -118,50 +118,7 @@ def planner_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str
             }
 
         # 2. Cache miss -> Invoke PlannerAgent
-        if mock:
-            dish_lower = dish_name.lower()
-            if "egg" in dish_lower or "roll" in dish_lower:
-                mock_ingredients = [
-                    {"name": "egg", "quantity": 2.0, "unit": "pieces", "price": 10.0},
-                    {"name": "roti wrapper", "quantity": 1.0, "unit": "piece", "price": 15.0},
-                    {"name": "onion & veggies", "quantity": 1.0, "unit": "cup", "price": 10.0},
-                ]
-                mock_steps = [
-                    "Whisk eggs with salt and pepper, then fry on pan.",
-                    "Warm roti wrapper and place cooked egg on top.",
-                    "Add chopped onions, green chilies, and roll tightly.",
-                ]
-            elif "tea" in dish_lower or "chai" in dish_lower:
-                mock_ingredients = [
-                    {"name": "tea leaves", "quantity": 1.0, "unit": "tbsp", "price": 5.0},
-                    {"name": "milk", "quantity": 1.0, "unit": "cup", "price": 15.0},
-                    {"name": "sugar", "quantity": 1.0, "unit": "tsp", "price": 5.0},
-                ]
-                mock_steps = [
-                    "Boil water with crushed cardamom and tea leaves.",
-                    "Add milk and sugar; bring to a rolling boil.",
-                    "Strain into cup and serve hot.",
-                ]
-            else:
-                mock_ingredients = [
-                    {"name": f"{dish_name} base ingredient", "quantity": 1.0, "unit": "portion", "price": 25.0},
-                    {"name": "chef spices", "quantity": 1.0, "unit": "pinch", "price": 10.0},
-                ]
-                mock_steps = [
-                    f"Prepare fresh ingredients for {dish_name}.",
-                    f"Sauté and cook over medium flame.",
-                    f"Plate and serve {dish_name} hot.",
-                ]
-
-            mock_json = json.dumps({
-                "dish_name": dish_name,
-                "ingredients": mock_ingredients,
-                "recipe_steps": mock_steps,
-                "estimated_cooking_time": 15,
-            })
-            planner_agent = PlannerAgent(provider=MockProvider(lambda p: mock_json))
-        else:
-            planner_agent = PlannerAgent()
+        planner_agent = PlannerAgent()
 
         output = planner_agent.run({"dish_name": dish_name})
         recipe_dict = output.model_dump(mode="json")
@@ -203,6 +160,7 @@ def inventory_node(state: GraphState, db: Session) -> Dict[str, Any]:
     shopping_service = ShoppingService(db)
     wallet_service = WalletService(db)
     inventory_service = InventoryService(db)
+    order_repo = OrderRepository(db)
 
     try:
         order_service.update_status(order_id, "SHOPPING")
@@ -240,7 +198,7 @@ def inventory_node(state: GraphState, db: Session) -> Dict[str, Any]:
         }
 
 
-def cook_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, Any]:
+def cook_node(state: GraphState, db: Session) -> Dict[str, Any]:
     """Cook Node: Retrieves previous review suggestions, invokes CookAgent, and consumes recipe ingredients."""
     logger.info("Entering cook_node for order_id=%s", state.get("order_id"))
     user_id = state["user_id"]
@@ -265,21 +223,7 @@ def cook_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, A
             for i in inventory_service.get_inventory(user_id)
         ]
 
-        if mock:
-            mock_json = json.dumps({
-                "cooking_steps": [
-                    {"step_number": 1, "action": "Prepared dough base", "status": "COMPLETED", "duration_seconds": 120},
-                    {"step_number": 2, "action": "Spread sauce and cheese", "status": "COMPLETED", "duration_seconds": 180},
-                    {"step_number": 3, "action": "Baked until golden brown", "status": "COMPLETED", "duration_seconds": 900},
-                ],
-                "step_telemetry": [
-                    {"timestamp": timestamp, "log": f"Cooking {dish_name} incorporating {len(prev_suggestions)} past suggestions."}
-                ],
-                "status": "COMPLETED",
-            })
-            cook_agent = CookAgent(provider=MockProvider(lambda p: mock_json))
-        else:
-            cook_agent = CookAgent()
+        cook_agent = CookAgent()
 
         output = cook_agent.run({
             "dish_name": dish_name,
@@ -309,7 +253,7 @@ def cook_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, A
         }
 
 
-def judge_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, Any]:
+def judge_node(state: GraphState, db: Session) -> Dict[str, Any]:
     """Judge Node: Invokes JudgeAgent, evaluates dish telemetry, and persists feedback to ReviewMemoryService."""
     logger.info("Entering judge_node for order_id=%s", state.get("order_id"))
     order_id = state["order_id"]
@@ -325,15 +269,7 @@ def judge_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, 
     try:
         order_service.update_status(order_id, "JUDGING")
 
-        if mock:
-            mock_json = json.dumps({
-                "score": 9.5,
-                "review": f"Excellent {dish_name}! Great texture and balance.",
-                "suggestions": "Consider brushing crust with garlic butter before baking.",
-            })
-            judge_agent = JudgeAgent(provider=MockProvider(lambda p: mock_json))
-        else:
-            judge_agent = JudgeAgent()
+        judge_agent = JudgeAgent()
 
         output = judge_agent.run({
             "dish_name": dish_name,
@@ -369,7 +305,7 @@ def judge_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, 
         }
 
 
-def reward_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str, Any]:
+def reward_node(state: GraphState, db: Session) -> Dict[str, Any]:
     """Reward Node: Invokes RewardAgent to dynamically calculate reward coins (Shopping Cost * 2), credits user wallet, logs transaction, and marks order COMPLETED."""
     logger.info("Entering reward_node for order_id=%s", state.get("order_id"))
     user_id = state["user_id"]
@@ -378,6 +314,7 @@ def reward_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str,
 
     wallet_service = WalletService(db)
     order_service = OrderService(db)
+    order_repo = OrderRepository(db)
     from app.repositories.shopping_repo import ShoppingHistoryRepository
     shopping_repo = ShoppingHistoryRepository(db)
     from app.agents.reward import RewardAgent
@@ -395,15 +332,7 @@ def reward_node(state: GraphState, db: Session, mock: bool = False) -> Dict[str,
             shopping_cost = sum((r.price for r in history_records), Decimal("0.00"))
 
         # 2. Invoke RewardAgent for dynamic calculation (Reward Coins = Shopping Cost * 2)
-        if mock:
-            reward_agent = RewardAgent(provider=MockProvider(lambda p: json.dumps({
-                "shopping_cost": float(shopping_cost),
-                "reward_multiplier": 2.0,
-                "reward_coins": float(shopping_cost * Decimal("2.00")),
-                "calculation_formula": f"Reward Coins = {shopping_cost} * 2 = {shopping_cost * Decimal('2.00')}",
-            })))
-        else:
-            reward_agent = RewardAgent()
+        reward_agent = RewardAgent()
 
         # Calculate reward deterministically using RewardAgent method
         reward_output = reward_agent.calculate_reward(shopping_cost)

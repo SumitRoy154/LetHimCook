@@ -46,12 +46,11 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
 
     # LLM API Keys
-    openai_api_key: str = ""
     anthropic_api_key: str = ""
     google_api_key: str = ""
     groq_api_key: str = ""
 
-    # AI Role Provider Mapping (openai | anthropic | google | groq | mock)
+    # AI Role Provider Mapping (anthropic | google | groq)
     planner_provider: str = "groq"
     cook_provider: str = "anthropic"
     judge_provider: str = "google"

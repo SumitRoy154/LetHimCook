@@ -25,7 +25,7 @@ VALID_TRANSITIONS = {
     "COOKING": {"JUDGING", "FAILED"},
     "JUDGING": {"COMPLETED", "FAILED"},
     "COMPLETED": set(),
-    "FAILED": set(),
+    "FAILED": {"PENDING"},
 }
 
 
