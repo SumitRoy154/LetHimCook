@@ -25,25 +25,25 @@ export async function getReviewByDish(dishName: string): Promise<ReviewData> {
     return {
       dishName,
       dish_name: dishName,
-      score: 9.8,
-      rating: 9.8,
-      reward: 50,
+      score: response.data?.score != null ? Number(response.data.score) : 0,
+      rating: response.data?.score != null ? Number(response.data.score) : 0,
+      reward: response.data?.bonus_coins != null ? Number(response.data.bonus_coins) : 0,
       categories: [
-        { name: "Taste & Flavor", score: 9.8, comment: suggestions[0] || "Exceptional balance of spices and rich texture.", icon: "👅" },
-        { name: "Aroma & Heat", score: 9.6, comment: suggestions[1] || "Inviting aroma with perfect thermal state.", icon: "👃" },
-        { name: "Presentation", score: 9.9, comment: suggestions[2] || "Visually stunning plating and garnish.", icon: "🎨" },
+        { name: "Taste & Flavor", score: response.data?.score != null ? Number(response.data.score) : 0, comment: suggestions[0] || response.data?.review || "Waiting for food...", icon: "👅" },
+        { name: "Aroma & Heat", score: response.data?.score != null ? Number(response.data.score) : 0, comment: suggestions[1] || "Waiting for food...", icon: "👃" },
+        { name: "Presentation", score: response.data?.score != null ? Number(response.data.score) : 0, comment: suggestions[2] || "Waiting for food...", icon: "🎨" },
       ],
     };
   } catch {
     return {
       dishName,
-      score: 9.8,
-      rating: 9.8,
-      reward: 50,
+      score: 0,
+      rating: 0,
+      reward: 0,
       categories: [
-        { name: "Taste & Flavor", score: 9.8, comment: "Exceptional balance of spices.", icon: "👅" },
-        { name: "Aroma", score: 9.6, comment: "Rich and comforting scent.", icon: "👃" },
-        { name: "Presentation", score: 9.9, comment: "Masterpiece presentation.", icon: "🎨" },
+        { name: "Taste & Flavor", score: 0, comment: "Waiting for food...", icon: "👅" },
+        { name: "Aroma", score: 0, comment: "Waiting for food...", icon: "👃" },
+        { name: "Presentation", score: 0, comment: "Waiting for food...", icon: "🎨" },
       ],
     };
   }
