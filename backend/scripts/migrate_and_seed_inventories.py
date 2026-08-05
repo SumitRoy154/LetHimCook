@@ -45,14 +45,24 @@ KITCHEN_STAPLES = [
 
 def update_schema_and_seed():
     print("[+] Connecting to MySQL database...")
+    from app.models.base import Base
+    import app.models  # Ensure all models are registered
+    Base.metadata.create_all(bind=engine)
+    
     with engine.begin() as conn:
         # Disable foreign key checks for clean structure updates
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))
         
         # 1. Truncate user_inventories and inventories
         print("[+] Truncating user_inventories and inventories tables...")
-        conn.execute(text("TRUNCATE TABLE user_inventories;"))
-        conn.execute(text("TRUNCATE TABLE inventories;"))
+        try:
+            conn.execute(text("TRUNCATE TABLE user_inventories;"))
+        except Exception as e:
+            print(f"[!] user_inventories truncate notice: {e}")
+        try:
+            conn.execute(text("TRUNCATE TABLE inventories;"))
+        except Exception as e:
+            print(f"[!] inventories truncate notice: {e}")
         
         # 2. Modify inventories table structure if user_id column still exists
         try:
