@@ -1,11 +1,12 @@
-# Render.com Blueprint Configuration File
+# Render.com Blueprint Configuration File (Free Plan Instances)
 # Reference: https://render.com/docs/blueprint-spec
 
 services:
-  # 1. FastAPI Backend Service
+  # 1. FastAPI Backend Service (Free Plan)
   - type: web
     name: lethimcook-backend
     env: python
+    plan: free
     buildCommand: "cd backend && pip install -r requirements.txt"
     startCommand: "cd backend && python scripts/migrate_and_seed_inventories.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /api/health
@@ -33,10 +34,11 @@ services:
       - key: SECRET_KEY
         sync: false
 
-  # 2. Next.js Frontend Service
+  # 2. Next.js Frontend Service (Free Plan)
   - type: web
     name: lethimcook-frontend
     env: node
+    plan: free
     buildCommand: "cd frontend && pnpm install && pnpm build"
     startCommand: "cd frontend && pnpm start"
     envVars:
