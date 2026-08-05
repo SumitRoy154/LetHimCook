@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class CookAgent(BaseAgent[CookOutput]):
-    """Cook Agent: Executes cooking steps and records telemetry based on recipe, inventory, and feedback."""
+    """Cook Agent (Claude): Generates recipe JSON and executes cooking steps based on dish_ingredients."""
 
     def __init__(self, provider: Optional[LLMProvider] = None):
         resolved_provider = provider or ProviderFactory.get_provider_for_role("cook")
@@ -24,7 +24,7 @@ class CookAgent(BaseAgent[CookOutput]):
 
     def prepare_input(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         dish_name = str(payload.get("dish_name", "")).strip()
-        recipe_steps = payload.get("recipe_steps", [])
+        dish_ingredients = payload.get("dish_ingredients", [])
         inventory = payload.get("available_inventory", [])
         suggestions = payload.get("previous_suggestions", [])
 
@@ -33,7 +33,7 @@ class CookAgent(BaseAgent[CookOutput]):
 
         return {
             "dish_name": dish_name,
-            "recipe_steps": json.dumps(recipe_steps, indent=2, default=str),
+            "dish_ingredients": json.dumps(dish_ingredients, indent=2, default=str),
             "available_inventory": json.dumps(inventory, indent=2, default=str),
             "previous_suggestions": json.dumps(suggestions, indent=2, default=str),
         }

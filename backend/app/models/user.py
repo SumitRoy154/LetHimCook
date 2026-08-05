@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
-    from app.models.inventory import Inventory
+    from app.models.inventory import Inventory, UserInventory
     from app.models.order import Order
     from app.models.wallet import Wallet
 
@@ -26,8 +26,8 @@ class User(Base, TimestampMixin):
         uselist=False,
         cascade="all, delete-orphan",
     )
-    inventory_items: Mapped[List["Inventory"]] = relationship(
-        "Inventory",
+    user_inventories: Mapped[List["UserInventory"]] = relationship(
+        "UserInventory",
         back_populates="user",
         cascade="all, delete-orphan",
     )

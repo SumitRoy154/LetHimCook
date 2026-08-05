@@ -2,6 +2,8 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
+import DishSuggestionModal from "@/components/DishSuggestionModal";
+import { getDishSuggestions, type DishOption } from "@/services/recipe";
 
 interface SectionIntroProps {
   isActive: boolean;
@@ -41,6 +43,11 @@ export default function SectionIntro({
   const [subtitleIndex, setSubtitleIndex] = useState(0);
   const [started, setStarted] = useState(false);
 
+  // Suggestion Modal state
+  const [suggestionModalOpen, setSuggestionModalOpen] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState<DishOption[]>([]);
+  const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
+
   const particles = Array.from({ length: 20 }, (_, index) => {
     const random = createSeededRandom(1440 + index);
     return {
@@ -63,16 +70,41 @@ export default function SectionIntro({
     return () => clearInterval(interval);
   }, [started]);
 
-  const handleStart = (e?: React.FormEvent) => {
+  const handleStart = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const targetDish = dishInput.trim();
     if (!targetDish || isLoading) return;
-    setStarted(true);
-    onStart(targetDish);
+
+    // Check if input directly matches quick suggestions list
+    const isDirectMatch = dishSuggestions.some((s) => s.toLowerCase() === targetDish.toLowerCase());
+
+    if (isDirectMatch) {
+      // Direct start without AI suggestion popup
+      setStarted(true);
+      onStart(targetDish);
+    } else {
+      // Open AI Suggestion popup modal
+      setIsFetchingSuggestions(true);
+      setSuggestionModalOpen(true);
+      try {
+        const suggestions = await getDishSuggestions(targetDish);
+        setAiSuggestions(suggestions);
+      } catch (err) {
+        setAiSuggestions([
+          { name: targetDish, description: "Custom requested dish.", emoji: "🍳" },
+          { name: "Paneer Butter Masala", description: "Rich cottage cheese gravy.", emoji: "🥘" },
+          { name: "Chicken Biryani", description: "Aromatic spiced rice dish.", emoji: "🍗" },
+        ]);
+      } finally {
+        setIsFetchingSuggestions(false);
+      }
+    }
   };
 
-  const handleSuggestionClick = (dish: string) => {
+  const handleQuickSuggestionClick = (dish: string) => {
     setDishInput(dish);
+    setStarted(true);
+    onStart(dish);
   };
 
   const isValidInput = dishInput.trim().length >= 2;
@@ -80,6 +112,21 @@ export default function SectionIntro({
 
   return (
     <section className="relative w-full min-h-screen flex items-center justify-center py-20 px-6">
+      <DishSuggestionModal
+        open={suggestionModalOpen}
+        onOpenChange={setSuggestionModalOpen}
+        suggestions={aiSuggestions}
+        isLoading={isFetchingSuggestions}
+        onSelectDish={(selectedDish) => {
+          setDishInput(selectedDish);
+          setStarted(true);
+          onStart(selectedDish);
+        }}
+        onTryAgain={() => {
+          setDishInput("");
+        }}
+      />
+
       {/* Background */}
       <div className="absolute inset-0">
         <img
@@ -175,7 +222,7 @@ export default function SectionIntro({
           className="glass-strong max-w-md mx-auto mb-6 px-6 py-5 rounded-2xl border border-white/10 text-left shadow-2xl"
         >
           <div className="flex items-center justify-between mb-3">
-            <p className="text-[10px] text-gray-400 uppercase tracking-[0.2em] font-body font-semibold">What are we cooking today?</p>
+            <p className="text-[10px] text-gray-400 uppercase tracking-[0.2em] font-body font-semibold">What are you craving today?</p>
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-[10px] text-emerald-400 font-mono font-bold">Kitchen Ready</span>
@@ -187,7 +234,7 @@ export default function SectionIntro({
               type="text"
               value={dishInput}
               onChange={(e) => setDishInput(e.target.value)}
-              placeholder="e.g. Paneer Butter Masala, Egg Roll, Masala Dosa..."
+              placeholder="Describe your craving (e.g. spicy noodles, piza, biryano)..."
               className="w-full bg-black/50 border border-white/15 focus:border-lime-400 rounded-xl px-4 py-3 text-base font-body text-white placeholder:text-gray-600 outline-none transition-all shadow-inner"
               style={{ fontFamily: "'Lato', sans-serif" }}
             />
@@ -201,7 +248,7 @@ export default function SectionIntro({
                 <button
                   key={dish}
                   type="button"
-                  onClick={() => handleSuggestionClick(dish)}
+                  onClick={() => handleQuickSuggestionClick(dish)}
                   className={`text-xs px-2.5 py-1 rounded-lg border transition-all font-body ${
                     dishInput === dish
                       ? "bg-lime-400/20 border-lime-400 text-lime-300 font-semibold"
@@ -230,13 +277,13 @@ export default function SectionIntro({
             }`}
             style={{ fontFamily: "'Lato', sans-serif" }}
           >
-            {isLoading ? (
+            {isLoading || isFetchingSuggestions ? (
               <>
                 <svg className="w-5 h-5 animate-spin text-black" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                 </svg>
-                <span>Dispatching AI Agents...</span>
+                <span>Analyzing Craving...</span>
               </>
             ) : (
               <span>Start Cooking</span>

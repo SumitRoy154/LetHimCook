@@ -1,5 +1,6 @@
 from app.models.base import Base
-from app.models.inventory import Inventory
+from app.models.dish_pipeline import DishIngredient, DishRecipe
+from app.models.inventory import Inventory, UserInventory
 from app.models.order import Order
 from app.models.recipe import Recipe
 from app.models.review import Review
@@ -14,6 +15,9 @@ __all__ = [
     "User",
     "Wallet",
     "Inventory",
+    "UserInventory",
+    "DishIngredient",
+    "DishRecipe",
     "Order",
     "ShoppingHistory",
     "Transaction",

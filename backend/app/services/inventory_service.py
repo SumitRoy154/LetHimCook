@@ -1,6 +1,6 @@
 import logging
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -8,8 +8,8 @@ from app.exceptions.inventory import (
     IngredientNotFoundException,
     InsufficientIngredientException,
 )
-from app.models.inventory import Inventory
-from app.repositories.inventory_repo import InventoryRepository
+from app.models.inventory import Inventory, UserInventory
+from app.repositories.inventory_repo import InventoryRepository, UserInventoryRepository
 
 logger = logging.getLogger(__name__)
 
@@ -18,15 +18,45 @@ class InventoryService:
     def __init__(self, db: Session):
         self.db = db
         self.inventory_repo = InventoryRepository(db)
+        self.user_inventory_repo = UserInventoryRepository(db)
 
-    def get_inventory(self, user_id: int) -> List[Inventory]:
-        """Return all inventory items owned by a user."""
-        return self.inventory_repo.get_by_user_id(user_id)
+    def get_inventory(self, user_id: int) -> List[Dict[str, Any]]:
+        """Return all inventory items owned by a user joined with item details."""
+        user_items = self.user_inventory_repo.get_by_user_id(user_id)
+        result = []
+        for ui in user_items:
+            if ui.item:
+                result.append({
+                    "id": ui.id,
+                    "ingredient_id": ui.ingredient_id,
+                    "ingredient_name": ui.item.ingredient_name,
+                    "quantity": ui.quantity,
+                    "unit": ui.item.unit,
+                    "purchase_price": ui.item.purchase_price,
+                })
+        return result
 
-    def ingredient_exists(self, user_id: int, name: str) -> bool:
-        """Check if an ingredient exists in user's inventory with quantity > 0."""
-        item = self.inventory_repo.get_user_ingredient(user_id, name.lower().strip())
-        return item is not None and item.quantity > Decimal("0.00")
+    def get_or_create_global_item(
+        self,
+        ingredient_name: str,
+        unit: str,
+        purchase_price: Decimal = Decimal("0.00"),
+    ) -> Inventory:
+        """Get existing global catalog item or create it if not found."""
+        normalized_name = ingredient_name.lower().strip()
+        item = self.inventory_repo.get_by_name(normalized_name)
+        if not item:
+            item = Inventory(
+                ingredient_name=normalized_name,
+                unit=unit,
+                purchase_price=purchase_price,
+            )
+            item = self.inventory_repo.create(item)
+            logger.info("Global item catalog entry created | name=%s, price=%s", normalized_name, purchase_price)
+        elif purchase_price > Decimal("0.00") and item.purchase_price == Decimal("0.00"):
+            item.purchase_price = purchase_price
+            item = self.inventory_repo.update(item)
+        return item
 
     def add_item(
         self,
@@ -35,83 +65,78 @@ class InventoryService:
         quantity: Decimal,
         unit: str,
         purchase_price: Decimal = Decimal("0.00"),
-    ) -> Inventory:
-        """Add or update an ingredient in user's inventory."""
+    ) -> UserInventory:
+        """Add or update an ingredient stock in user's inventory."""
         if quantity <= Decimal("0.00"):
             raise ValueError("Quantity to add must be greater than zero.")
 
-        normalized_name = ingredient_name.lower().strip()
-        existing = self.inventory_repo.get_user_ingredient(user_id, normalized_name)
+        global_item = self.get_or_create_global_item(ingredient_name, unit, purchase_price)
+        existing_ui = self.user_inventory_repo.get_user_item(user_id, global_item.ingredient_id)
 
-        if existing:
-            existing.quantity += quantity
-            existing.unit = unit
-            if purchase_price > Decimal("0.00"):
-                existing.purchase_price = purchase_price
-            updated_item = self.inventory_repo.update(existing)
+        if existing_ui:
+            existing_ui.quantity += quantity
+            updated_ui = self.user_inventory_repo.update(existing_ui)
             logger.info(
-                "Inventory updated | user_id=%s, ingredient=%s, added=%s, total=%s",
+                "UserInventory updated | user_id=%s, item=%s, added=%s, total=%s",
                 user_id,
-                normalized_name,
+                global_item.ingredient_name,
                 quantity,
-                updated_item.quantity,
+                updated_ui.quantity,
             )
-            return updated_item
+            return updated_ui
         else:
-            new_item = Inventory(
+            new_ui = UserInventory(
                 user_id=user_id,
-                ingredient_name=normalized_name,
+                ingredient_id=global_item.ingredient_id,
                 quantity=quantity,
-                unit=unit,
-                purchase_price=purchase_price,
             )
-            created_item = self.inventory_repo.create(new_item)
+            created_ui = self.user_inventory_repo.create(new_ui)
             logger.info(
-                "Inventory item created | user_id=%s, ingredient=%s, quantity=%s",
+                "UserInventory created | user_id=%s, item=%s, quantity=%s",
                 user_id,
-                normalized_name,
+                global_item.ingredient_name,
                 quantity,
             )
-            return created_item
+            return created_ui
 
-    def remove_item(self, user_id: int, ingredient_name: str, quantity: Decimal) -> Inventory:
-        """Deduct ingredient quantity from inventory. Prevents negative inventory stock."""
+    def remove_item(self, user_id: int, ingredient_name: str, quantity: Decimal) -> UserInventory:
+        """Deduct ingredient quantity from user inventory."""
         if quantity <= Decimal("0.00"):
             raise ValueError("Quantity to remove must be greater than zero.")
 
         normalized_name = ingredient_name.lower().strip()
-        item = self.inventory_repo.get_user_ingredient(user_id, normalized_name)
+        ui = self.user_inventory_repo.get_user_ingredient_by_name(user_id, normalized_name)
 
-        if not item:
+        if not ui:
             raise IngredientNotFoundException(f"Ingredient '{ingredient_name}' not found in user inventory.")
 
-        if item.quantity < quantity:
+        if ui.quantity < quantity:
             raise InsufficientIngredientException(
-                f"Cannot remove {quantity} {item.unit} of '{ingredient_name}'. Only {item.quantity} available."
+                f"Cannot remove {quantity} {ui.item.unit if ui.item else 'units'} of '{ingredient_name}'. Only {ui.quantity} available."
             )
 
-        item.quantity -= quantity
-        updated_item = self.inventory_repo.update(item)
+        ui.quantity -= quantity
+        updated_ui = self.user_inventory_repo.update(ui)
         logger.info(
-            "Inventory quantity reduced | user_id=%s, ingredient=%s, deducted=%s, remaining=%s",
+            "UserInventory quantity reduced | user_id=%s, ingredient=%s, deducted=%s, remaining=%s",
             user_id,
             normalized_name,
             quantity,
-            updated_item.quantity,
+            updated_ui.quantity,
         )
-        return updated_item
+        return updated_ui
 
     def has_required_ingredients(self, user_id: int, required_items: List[Dict[str, Any]]) -> bool:
         """Check if user owns all required ingredients with sufficient quantities."""
         for req in required_items:
             name = str(req.get("name", "")).lower().strip()
             req_qty = Decimal(str(req.get("quantity", 0)))
-            item = self.inventory_repo.get_user_ingredient(user_id, name)
-            if not item or item.quantity < req_qty:
+            ui = self.user_inventory_repo.get_user_ingredient_by_name(user_id, name)
+            if not ui or ui.quantity < req_qty:
                 return False
         return True
 
-    def consume(self, user_id: int, required_items: List[Dict[str, Any]]) -> List[Inventory]:
+    def consume(self, user_id: int, required_items: List[Dict[str, Any]]) -> List[UserInventory]:
         """Consume recipe ingredients from user inventory after checking availability."""
         if not self.has_required_ingredients(user_id, required_items):
             raise InsufficientIngredientException("User does not have all required ingredients to consume.")

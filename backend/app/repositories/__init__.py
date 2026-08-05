@@ -1,5 +1,6 @@
 from app.repositories.base import BaseRepository
-from app.repositories.inventory_repo import InventoryRepository
+from app.repositories.dish_pipeline_repo import DishIngredientRepository, DishRecipeRepository
+from app.repositories.inventory_repo import InventoryRepository, UserInventoryRepository
 from app.repositories.order_repo import OrderRepository
 from app.repositories.recipe_repo import RecipeRepository
 from app.repositories.review_repo import ReviewRepository
@@ -14,6 +15,9 @@ __all__ = [
     "UserRepository",
     "WalletRepository",
     "InventoryRepository",
+    "UserInventoryRepository",
+    "DishIngredientRepository",
+    "DishRecipeRepository",
     "OrderRepository",
     "ShoppingHistoryRepository",
     "TransactionRepository",

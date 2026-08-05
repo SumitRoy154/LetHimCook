@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.dish_pipeline import DishIngredient, DishRecipe
     from app.models.review import Review
     from app.models.shopping import ShoppingHistory
     from app.models.user import User
@@ -28,6 +29,18 @@ class Order(Base, TimestampMixin):
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="orders")
+    dish_ingredient: Mapped[Optional["DishIngredient"]] = relationship(
+        "DishIngredient",
+        back_populates="order",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    dish_recipe: Mapped[Optional["DishRecipe"]] = relationship(
+        "DishRecipe",
+        back_populates="order",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     shopping_items: Mapped[List["ShoppingHistory"]] = relationship(
         "ShoppingHistory",
         back_populates="order",

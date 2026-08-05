@@ -162,7 +162,7 @@ function mapPantryItems(rawIngredients: any, shoppingItems: ShoppingItem[]): Pan
     return {
       name,
       emoji: ing.emoji ?? ing.icon ?? fallbackIcons[idx % fallbackIcons.length],
-      status: isPurchased ? "Purchased" : "Already Available",
+      status: isPurchased ? "Purchased" : "Kitchen Staple",
     };
   });
 

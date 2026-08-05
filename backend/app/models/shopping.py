@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 if TYPE_CHECKING:
+    from app.models.inventory import Inventory
     from app.models.order import Order
 
 
@@ -17,6 +18,11 @@ class ShoppingHistory(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     order_id: Mapped[int] = mapped_column(
         ForeignKey("orders.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    ingredient_id: Mapped[int] = mapped_column(
+        ForeignKey("inventories.ingredient_id", ondelete="CASCADE"),
         index=True,
         nullable=False,
     )
@@ -31,3 +37,4 @@ class ShoppingHistory(Base):
 
     # Relationships
     order: Mapped["Order"] = relationship("Order", back_populates="shopping_items")
+    item: Mapped["Inventory"] = relationship("Inventory")

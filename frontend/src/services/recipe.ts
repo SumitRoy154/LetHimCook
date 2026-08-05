@@ -1,6 +1,17 @@
 import { apiClient } from "@/lib/axios";
 import type { RecipeData, RecipeIngredient } from "@/types/api";
 
+export interface DishOption {
+  name: string;
+  description: string;
+  emoji: string;
+}
+
+export async function getDishSuggestions(craving: string): Promise<DishOption[]> {
+  const response = await apiClient.post("/recipes/suggest", { craving });
+  return response.data?.suggestions || [];
+}
+
 export async function getRecipe(dishName: string): Promise<RecipeData> {
   const response = await apiClient.get(`/recipes/${encodeURIComponent(dishName)}`);
   const rawData = response.data as any;
