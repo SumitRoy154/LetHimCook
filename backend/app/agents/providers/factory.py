@@ -45,10 +45,10 @@ class ProviderFactory:
                     timeout=settings.cook_timeout,
                 )
             elif provider_name == "google":
-                if not settings.google_api_key:
-                    raise ProviderException("GOOGLE_API_KEY is missing for Cook role.")
+                if not settings.effective_google_api_key:
+                    raise ProviderException("GOOGLE_API_KEY / GEMINI_API_KEY is missing for Cook role.")
                 return GoogleProvider(
-                    api_key=settings.google_api_key,
+                    api_key=settings.effective_google_api_key,
                     model=settings.cook_model if "gemini" in settings.cook_model.lower() else "gemini-2.5-flash",
                     temperature=settings.cook_temperature,
                     max_tokens=settings.cook_max_tokens,
@@ -79,10 +79,10 @@ class ProviderFactory:
                     timeout=settings.judge_timeout,
                 )
             elif provider_name in ["google", "gemini"]:
-                if not settings.google_api_key:
-                    raise ProviderException("GOOGLE_API_KEY is missing for Judge role.")
+                if not settings.effective_google_api_key:
+                    raise ProviderException("GOOGLE_API_KEY / GEMINI_API_KEY is missing for Judge role.")
                 return GoogleProvider(
-                    api_key=settings.google_api_key,
+                    api_key=settings.effective_google_api_key,
                     model=settings.judge_model,
                     temperature=settings.judge_temperature,
                     max_tokens=settings.judge_max_tokens,

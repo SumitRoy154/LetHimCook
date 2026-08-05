@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     groq_api_key: str = ""
 
+    @property
+    def effective_google_api_key(self) -> str:
+        import os
+        return os.getenv("GEMINI_API_KEY") or self.gemini_api_key or os.getenv("GOOGLE_API_KEY") or self.google_api_key
+
     # AI Role Provider Mapping (anthropic | google | groq)
     planner_provider: str = "groq"
     cook_provider: str = "anthropic"
