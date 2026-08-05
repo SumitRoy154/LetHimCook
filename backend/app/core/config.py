@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # MySQL Configuration
+    database_url_env: Optional[str] = None
     db_host: Optional[str] = None
     db_port: Optional[int] = None
     db_user: Optional[str] = None
@@ -104,6 +105,8 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
+        if self.database_url_env:
+            return self.database_url_env
         return (
             f"mysql+pymysql://{self.effective_db_user}:{self.effective_db_password}"
             f"@{self.effective_db_host}:{self.effective_db_port}/{self.effective_db_name}"
