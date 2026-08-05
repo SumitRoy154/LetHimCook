@@ -1,0 +1,46 @@
+# Render.com Blueprint Configuration File
+# Reference: https://render.com/docs/blueprint-spec
+
+services:
+  # 1. FastAPI Backend Service
+  - type: web
+    name: lethimcook-backend
+    env: python
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && python scripts/migrate_and_seed_inventories.py && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PLANNER_PROVIDER
+        value: groq
+      - key: COOK_PROVIDER
+        value: anthropic
+      - key: JUDGE_PROVIDER
+        value: google
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "1440"
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+
+  # 2. Next.js Frontend Service
+  - type: web
+    name: lethimcook-frontend
+    env: node
+    buildCommand: "cd frontend && pnpm install && pnpm build"
+    startCommand: "cd frontend && pnpm start"
+    envVars:
+      - key: NODE_VERSION
+        value: 20.0.0
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
