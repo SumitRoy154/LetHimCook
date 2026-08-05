@@ -105,8 +105,10 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        if self.database_url_env:
-            return self.database_url_env
+        import os
+        env_url = os.getenv("DATABASE_URL") or os.getenv("DATABASE_URL_ENV") or self.database_url_env
+        if env_url:
+            return env_url
         return (
             f"mysql+pymysql://{self.effective_db_user}:{self.effective_db_password}"
             f"@{self.effective_db_host}:{self.effective_db_port}/{self.effective_db_name}"
