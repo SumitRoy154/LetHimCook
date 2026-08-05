@@ -13,7 +13,8 @@ def health_check() -> dict:
 
     groq_key_set = bool(settings.groq_api_key)
     anthropic_key_set = bool(settings.anthropic_api_key)
-    google_key_set = bool(settings.google_api_key)
+    import os
+    google_key_set = bool(settings.google_api_key or os.getenv("GEMINI_API_KEY"))
 
     return {
         "status": "healthy" if db_connected else "degraded",

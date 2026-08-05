@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     # LLM API Keys
     anthropic_api_key: str = ""
     google_api_key: str = ""
+    gemini_api_key: str = ""
     groq_api_key: str = ""
 
     # AI Role Provider Mapping (anthropic | google | groq)
