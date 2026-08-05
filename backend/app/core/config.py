@@ -38,10 +38,16 @@ class Settings(BaseSettings):
     mysql_database: str = "let_him_cook"
 
     # JWT Authentication
+    secret_key: Optional[str] = None
     jwt_secret_key: str = "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_KEY"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+
+    @property
+    def effective_jwt_secret(self) -> str:
+        import os
+        return os.getenv("SECRET_KEY") or self.secret_key or os.getenv("JWT_SECRET_KEY") or self.jwt_secret_key
 
     # CORS
     cors_origins: str = "http://localhost:3000"
