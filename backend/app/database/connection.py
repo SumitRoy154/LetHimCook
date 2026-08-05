@@ -8,6 +8,7 @@ settings = get_settings()
 
 engine: Engine = create_engine(
     settings.database_url,
+    connect_args={"ssl": {"check_hostname": False}},
     pool_pre_ping=True,
     pool_recycle=3600,
     echo=settings.debug,
